@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
+  <!-- Map pin shape -->
+  <path d="M24 4C16.268 4 10 10.268 10 18C10 27.5 24 44 24 44C24 44 38 27.5 38 18C38 10.268 31.732 4 24 4Z" fill="#10b981"/>
+  <!-- Rupee symbol (₹) -->
+  <text x="24" y="23" text-anchor="middle" dominant-baseline="middle" font-family="system-ui,sans-serif" font-size="14" font-weight="700" fill="white">&#8377;</text>
+</svg>

@@ -1,0 +1,225 @@
+/* ─── Google Font — must be first ─────────────────────────── */
+/* (Also preloaded via <link> in index.html for performance) */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Design tokens ────────────────────────────────────────── */
+@layer base {
+  :root {
+    /* Background */
+    --bg-app:      theme('colors.surface.50');
+    --bg-surface:  theme('colors.surface.0');
+    --bg-card:     theme('colors.surface.0');
+    --bg-subtle:   theme('colors.surface.100');
+    --bg-muted:    theme('colors.surface.200');
+
+    /* Text */
+    --text-primary:   theme('colors.surface.900');
+    --text-secondary: theme('colors.surface.500');
+    --text-muted:     theme('colors.surface.400');
+    --text-inverse:   theme('colors.surface.0');
+
+    /* Border */
+    --border:         theme('colors.surface.200');
+    --border-strong:  theme('colors.surface.300');
+
+    /* Brand */
+    --brand:          theme('colors.brand.500');
+    --brand-light:    theme('colors.brand.50');
+    --brand-muted:    theme('colors.brand.100');
+    --accent-primary: theme('colors.brand.500');
+    --accent-hover:   theme('colors.brand.600');
+    --border-subtle:  theme('colors.surface.200');
+
+    /* Semantic */
+    --income:   #16a34a;
+    --expense:  #dc2626;
+    --transfer: #7c3aed;
+    --emi:      #d97706;
+    --invest:   #0284c7;
+    --saving:   #0891b2;
+
+    /* Sidebar width */
+    --sidebar-w: 240px;
+    --sidebar-collapsed-w: 68px;
+  }
+
+  .dark {
+    --bg-app:      theme('colors.surface.950');
+    --bg-surface:  theme('colors.surface.900');
+    --bg-card:     theme('colors.surface.900');
+    --bg-subtle:   theme('colors.surface.850');
+    --bg-muted:    theme('colors.surface.800');
+
+    --text-primary:   theme('colors.surface.50');
+    --text-secondary: theme('colors.surface.400');
+    --text-muted:     theme('colors.surface.600');
+    --text-inverse:   theme('colors.surface.950');
+
+    --border:         theme('colors.surface.800');
+    --border-strong:  theme('colors.surface.700');
+    --border-subtle:  theme('colors.surface.800');
+
+    --brand:          theme('colors.brand.400');
+    --brand-light:    theme('colors.brand.950');
+    --brand-muted:    theme('colors.brand.900');
+    --accent-primary: theme('colors.brand.400');
+    --accent-hover:   theme('colors.brand.300');
+  }
+
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    border-color: var(--border);
+  }
+
+  html {
+    font-family: 'Manrope', 'Inter', system-ui, sans-serif;
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+    background-color: var(--bg-app);
+    color: var(--text-primary);
+    margin: 0;
+    padding: 0;
+    min-height: 100%;
+    color-scheme: light dark;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: var(--bg-app);
+    color: var(--text-primary);
+    line-height: 1.6;
+    min-height: 100dvh;
+    overscroll-behavior: none;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  #root {
+    min-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--bg-app);
+    margin: 0;
+    padding: 0;
+  }
+
+  /* ── Scrollbar ──────────────────────────── */
+  ::-webkit-scrollbar        { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track  { background: transparent; }
+  ::-webkit-scrollbar-thumb  {
+    background: var(--border-strong);
+    border-radius: 99px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+  /* ── Focus ring ─────────────────────────── */
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}
+
+/* ─── Utility classes ──────────────────────────────────────── */
+@layer utilities {
+  .text-income   { color: var(--income); }
+  .text-expense  { color: var(--expense); }
+  .text-transfer { color: var(--transfer); }
+  .text-emi      { color: var(--emi); }
+  .text-invest   { color: var(--invest); }
+  .text-saving   { color: var(--saving); }
+
+  .bg-income   { background-color: color-mix(in srgb, var(--income) 12%, transparent); }
+  .bg-expense  { background-color: color-mix(in srgb, var(--expense) 10%, transparent); }
+  .bg-transfer { background-color: color-mix(in srgb, var(--transfer) 10%, transparent); }
+  .bg-emi      { background-color: color-mix(in srgb, var(--emi) 12%, transparent); }
+  .bg-invest   { background-color: color-mix(in srgb, var(--invest) 10%, transparent); }
+  .bg-saving   { background-color: color-mix(in srgb, var(--saving) 10%, transparent); }
+
+  /* App-wide surfaces */
+  .surface { background-color: var(--bg-surface); }
+  .surface-subtle { background-color: var(--bg-subtle); }
+
+  /* Typography helpers */
+  .text-primary   { color: var(--text-primary); }
+  .text-secondary { color: var(--text-secondary); }
+  .text-muted     { color: var(--text-muted); }
+
+  /* Number display (tabular figures for alignment) */
+  .tabular { font-variant-numeric: tabular-nums; }
+}
+
+/* ─── Component layer ──────────────────────────────────────── */
+@layer components {
+  /* Form input / select / textarea */
+  .input {
+    @apply w-full px-3.5 py-2 text-sm bg-[var(--bg-subtle)] border border-[var(--border)] rounded-xl
+           text-[var(--text-primary)] placeholder-[var(--text-muted)]
+           focus:bg-[var(--bg-surface)] focus:border-brand-500 focus:ring-1 focus:ring-brand-500
+           transition-all outline-none disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* Card */
+  .card {
+    @apply surface rounded-xl border shadow-card p-4;
+  }
+
+  /* Primary button */
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-500 text-white
+           font-medium text-sm transition-all duration-150
+           hover:bg-brand-600 active:scale-[0.98]
+           focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2
+           disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  /* Secondary button */
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--bg-subtle)] border border-[var(--border)]
+           text-[var(--text-primary)] font-medium text-sm transition-all duration-150
+           hover:bg-[var(--bg-muted)] active:scale-[0.98]
+           focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2
+           disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  /* Ghost button */
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 px-3 py-2 rounded-lg font-medium text-sm
+           text-[var(--text-secondary)] transition-all duration-150
+           hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)]
+           active:scale-[0.98]
+           disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  /* Nav item */
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-lg cursor-pointer
+           text-[var(--text-secondary)] font-medium text-sm
+           transition-all duration-150
+           hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)];
+  }
+
+  .nav-item.active {
+    @apply bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-400;
+  }
+
+  /* Badge */
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold;
+  }
+
+  /* Amount display helpers */
+  .amount-positive { @apply tabular font-semibold text-income; }
+  .amount-negative { @apply tabular font-semibold text-expense; }
+  .amount-neutral  { @apply tabular font-semibold text-[var(--text-primary)]; }
+
+  /* Page skeleton pulse */
+  .skeleton {
+    @apply animate-pulse rounded-lg bg-[var(--bg-muted)];
+  }
+}
