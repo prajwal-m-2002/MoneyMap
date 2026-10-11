@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { calculateAccountBalance } from '@/context/FinanceContext'
 import { calculateConsolidatedFlow, getFlowPeriodBounds } from '@/lib/consolidatedFlowMath'
 import { generateCashFlowForecast } from '@/lib/predictionEngine'
@@ -6,6 +6,10 @@ import {
   getDefaultMonthlyBudgetPlan,
   calculateMonthlyBudgetAllocation,
 } from '@/lib/monthlyBudgetMath'
+import {
+  getPersistedMonthlyPlan,
+  savePersistedMonthlyPlan,
+} from '@/lib/monthlyCycleMath'
 import type {
   Account,
   Transaction,
@@ -521,4 +525,106 @@ describe('MoneyMap — Accounting Accuracy & Monthly Budget Allocation Audit Sui
       expect(octBounds.endDate).toContain('-31')
     })
   })
+
+  // ── 7. Editable Planned Budget Plan Persistence & Template ──
+  describe('7. Editable Planned Budget Plan Persistence & Templates', () => {
+    const store = new Map<string, string>()
+    const mockStorage: Storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, val: string) => { store.set(key, String(val)) },
+      removeItem: (key: string) => { store.delete(key) },
+      clear: () => { store.clear() },
+      key: (i: number) => Array.from(store.keys())[i] ?? null,
+      get length() { return store.size },
+    }
+
+    beforeEach(() => {
+      store.clear()
+      globalThis.localStorage = mockStorage
+    })
+
+    it('saves customized planned budget to localStorage and retrieves it accurately', () => {
+      const accounts = createStandardAccounts()
+      const customPlan: MonthlyBudgetPlan = {
+        month: '2026-10',
+        expectedSalary: 35000,
+        allocations: [
+          {
+            id: 'plan-kotak-savings',
+            name: 'Kotak Savings',
+            categoryKey: 'kotak_savings',
+            plannedAmount: 12000,
+            targetAccountId: 'acc-kotak',
+          },
+          {
+            id: 'plan-sbi-emi',
+            name: 'SBI EMI & Spending',
+            categoryKey: 'sbi_emi_spending',
+            plannedAmount: 7000,
+            targetAccountId: 'acc-sbi',
+          },
+        ],
+      }
+
+      savePersistedMonthlyPlan(customPlan, false)
+
+      const retrieved = getPersistedMonthlyPlan('2026-10', accounts)
+      expect(retrieved.expectedSalary).toBe(35000)
+      expect(retrieved.allocations.length).toBe(2)
+      expect(retrieved.allocations[0].plannedAmount).toBe(12000)
+    })
+
+    it('inherits default template across new months when template option is enabled', () => {
+      const accounts = createStandardAccounts()
+      const templatePlan: MonthlyBudgetPlan = {
+        month: '2026-10',
+        expectedSalary: 40000,
+        allocations: [
+          {
+            id: 'plan-kotak-savings',
+            name: 'Kotak Wealth Accumulation',
+            categoryKey: 'kotak_savings',
+            plannedAmount: 15000,
+            targetAccountId: 'acc-kotak',
+          },
+        ],
+      }
+
+      // Save as default template
+      savePersistedMonthlyPlan(templatePlan, true)
+
+      // An unconfigured future month (e.g. 2026-12) inherits the template
+      const decPlan = getPersistedMonthlyPlan('2026-12', accounts)
+      expect(decPlan.month).toBe('2026-12')
+      expect(decPlan.expectedSalary).toBe(40000)
+      expect(decPlan.allocations[0].plannedAmount).toBe(15000)
+      expect(decPlan.allocations[0].name).toBe('Kotak Wealth Accumulation')
+    })
+
+    it('recalculates budget allocations without mutating underlying account balances', () => {
+      const accounts = createStandardAccounts()
+      const initialKotakBalance = accounts.find((a) => a.id === 'acc-kotak')!.balance
+
+      const modifiedPlan: MonthlyBudgetPlan = {
+        month: '2026-10',
+        expectedSalary: 50000,
+        allocations: [
+          {
+            id: 'plan-kotak-savings',
+            name: 'Kotak Savings',
+            categoryKey: 'kotak_savings',
+            plannedAmount: 25000, // doubled planned target
+            targetAccountId: 'acc-kotak',
+          },
+        ],
+      }
+
+      savePersistedMonthlyPlan(modifiedPlan, false)
+
+      // Account balance remains unchanged
+      const accountAfter = accounts.find((a) => a.id === 'acc-kotak')!
+      expect(accountAfter.balance).toBe(initialKotakBalance)
+    })
+  })
 })
+

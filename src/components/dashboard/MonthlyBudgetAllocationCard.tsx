@@ -15,18 +15,19 @@ import {
   Calendar,
   AlertCircle,
   PlusCircle,
+  Pencil,
+  Check,
+  X,
 } from 'lucide-react'
 import { useFinance } from '@/context/FinanceContext'
 import { formatINR } from '@/lib/utils'
 import type { MonthlyBudgetPlan, Account } from '@/types/finance'
 import {
-  getDefaultMonthlyBudgetPlan,
-} from '@/lib/monthlyBudgetMath'
-import {
   calculateMonthlyCycleOverview,
   getPreviousMonthStr,
   getNextMonthStr,
-  getMonthlyPlanStorageKey,
+  getPersistedMonthlyPlan,
+  savePersistedMonthlyPlan,
 } from '@/lib/monthlyCycleMath'
 import { EditBudgetAllocationModal } from '@/components/modals/EditBudgetAllocationModal'
 import { TransferAllocationModal } from '@/components/modals/TransferAllocationModal'
@@ -39,6 +40,7 @@ export function MonthlyBudgetAllocationCard() {
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthStr)
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [initialEditCategoryId, setInitialEditCategoryId] = useState<string | null>(null)
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false)
   const [transferTargetAccount, setTransferTargetAccount] = useState<Account | undefined>(undefined)
   const [transferSuggestedAmount, setTransferSuggestedAmount] = useState<number>(0)
@@ -46,49 +48,61 @@ export function MonthlyBudgetAllocationCard() {
 
   const [isRecordSalaryModalOpen, setIsRecordSalaryModalOpen] = useState(false)
 
-  // Load persisted plan for selected month, or fallback to default
+  // Inline editing state for individual allocation cards
+  const [inlineEditingId, setInlineEditingId] = useState<string | null>(null)
+  const [inlineAmountStr, setInlineAmountStr] = useState<string>('')
+
+  // Load persisted plan for selected month, or fallback to saved template or default
   const [plan, setPlan] = useState<MonthlyBudgetPlan>(() => {
-    try {
-      const stored = localStorage.getItem(getMonthlyPlanStorageKey(selectedMonth))
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        if (parsed && Array.isArray(parsed.allocations)) {
-          return parsed
-        }
-      }
-    } catch {
-      // ignore
-    }
-    return getDefaultMonthlyBudgetPlan(accounts, 27000, selectedMonth)
+    return getPersistedMonthlyPlan(selectedMonth, accounts, 27000)
   })
 
   // Whenever selectedMonth changes, update plan state
   const handleSelectMonth = (newMonth: string) => {
     setSelectedMonth(newMonth)
-    try {
-      const stored = localStorage.getItem(getMonthlyPlanStorageKey(newMonth))
-      if (stored) {
-        const parsed = JSON.parse(stored)
-        if (parsed && Array.isArray(parsed.allocations)) {
-          setPlan(parsed)
-          return
-        }
-      }
-    } catch {
-      // ignore
-    }
-    setPlan(getDefaultMonthlyBudgetPlan(accounts, 27000, newMonth))
+    setPlan(getPersistedMonthlyPlan(newMonth, accounts, 27000))
+    setInlineEditingId(null)
   }
 
   // Handle plan save
-  const handleSavePlan = (newPlan: MonthlyBudgetPlan) => {
+  const handleSavePlan = (newPlan: MonthlyBudgetPlan, saveAsDefault = true) => {
     setPlan(newPlan)
-    try {
-      localStorage.setItem(getMonthlyPlanStorageKey(selectedMonth), JSON.stringify(newPlan))
-    } catch {
-      // ignore
-    }
+    savePersistedMonthlyPlan(newPlan, saveAsDefault)
   }
+
+  // Inline editing actions for single categories
+  const handleStartInlineEdit = (item: { id: string; plannedAmount: number }) => {
+    setInlineEditingId(item.id)
+    setInlineAmountStr(String(item.plannedAmount))
+  }
+
+  const handleCancelInlineEdit = () => {
+    setInlineEditingId(null)
+    setInlineAmountStr('')
+  }
+
+  const handleSaveInlineEdit = (itemId: string) => {
+    const val = Math.max(0, Number(inlineAmountStr) || 0)
+    const updatedAllocations = plan.allocations.map((a) =>
+      a.id === itemId ? { ...a, plannedAmount: val } : a
+    )
+    const totalAllocated = updatedAllocations.reduce((sum, a) => sum + (a.plannedAmount || 0), 0)
+    const updatedPlan: MonthlyBudgetPlan = {
+      ...plan,
+      allocations: updatedAllocations,
+      expectedSalary: Math.max(plan.expectedSalary || 0, totalAllocated),
+      lastUpdated: new Date().toISOString(),
+    }
+    handleSavePlan(updatedPlan, true)
+    setInlineEditingId(null)
+    setInlineAmountStr('')
+  }
+
+  const handleOpenEditModalForCategory = (categoryId?: string) => {
+    setInitialEditCategoryId(categoryId || null)
+    setIsEditModalOpen(true)
+  }
+
 
   // Calculate comprehensive recurring monthly cycle overview
   const cycleOverview = useMemo(() => {
@@ -348,14 +362,25 @@ export function MonthlyBudgetAllocationCard() {
 
       {/* ── Planned vs Actual Budget Allocation ──────────────── */}
       <div className="space-y-3 pt-2 border-t border-[var(--border)]">
-        <div className="flex items-center justify-between text-xs font-bold">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs font-bold">
           <div className="flex items-center gap-1.5 text-[var(--text-primary)]">
             <ArrowRightLeft size={14} className="text-brand-500" />
-            <span>Planned vs Actual Budget Allocations</span>
+            <span className="text-sm font-bold">Planned vs Actual Budget Allocations</span>
           </div>
-          <span className="text-[var(--text-secondary)] tabular">
-            Total Planned: {formatINR(cycleOverview.plannedAllocationsTotal)} | Funded: {formatINR(cycleOverview.plannedVsActualSummary.totalTransferred)}
-          </span>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <span className="text-[var(--text-secondary)] tabular text-xs">
+              Total Planned: <strong className="text-[var(--text-primary)]">{formatINR(cycleOverview.plannedAllocationsTotal)}</strong> | Funded: <strong className="text-brand-600 dark:text-brand-400">{formatINR(cycleOverview.plannedVsActualSummary.totalTransferred)}</strong>
+            </span>
+            <button
+              type="button"
+              onClick={() => handleOpenEditModalForCategory()}
+              className="text-xs font-semibold px-2.5 py-1.5 rounded-xl bg-brand-500/10 text-brand-600 dark:text-brand-400 hover:bg-brand-500 hover:text-white border border-brand-500/20 transition-all flex items-center gap-1.5 shrink-0 shadow-2xs cursor-pointer active:scale-95"
+              title="Customize all planned budget allocations"
+            >
+              <Pencil size={12} />
+              <span>Edit Budget Plan</span>
+            </button>
+          </div>
         </div>
 
         {/* Stacked Visual Bar */}
@@ -405,17 +430,27 @@ export function MonthlyBudgetAllocationCard() {
                     </div>
                   </div>
 
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
-                      item.status === 'exceeded'
-                        ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
-                        : isFunded || item.status === 'on_track'
-                        ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-                        : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-                    }`}
-                  >
-                    {isFunded ? '100% Funded' : `${item.percentUsed}% Funded`}
-                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                        item.status === 'exceeded'
+                          ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
+                          : isFunded || item.status === 'on_track'
+                          ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                          : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                      }`}
+                    >
+                      {isFunded ? '100% Funded' : `${item.percentUsed}% Funded`}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleStartInlineEdit(item)}
+                      className="p-1 rounded-md text-[var(--text-secondary)] hover:text-brand-600 dark:hover:text-brand-400 hover:bg-[var(--bg-subtle)] transition-colors cursor-pointer"
+                      title={`Quick edit planned amount for ${item.name}`}
+                    >
+                      <Pencil size={12} />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Progress Bar */}
@@ -433,9 +468,51 @@ export function MonthlyBudgetAllocationCard() {
                 <div className="flex items-center justify-between text-[11px] pt-1 border-t border-[var(--border)]">
                   <div>
                     <span className="text-[9px] text-[var(--text-muted)] block">Planned</span>
-                    <span className="font-bold text-[var(--text-primary)] tabular">
-                      {formatINR(item.plannedAmount)}
-                    </span>
+                    {inlineEditingId === item.id ? (
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <div className="relative">
+                          <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-[var(--text-muted)]">₹</span>
+                          <input
+                            type="number"
+                            min="0"
+                            autoFocus
+                            value={inlineAmountStr}
+                            onChange={(e) => setInlineAmountStr(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') handleSaveInlineEdit(item.id)
+                              if (e.key === 'Escape') handleCancelInlineEdit()
+                            }}
+                            className="w-20 pl-4 pr-1 py-0.5 text-xs font-bold rounded border border-brand-500 bg-[var(--bg-surface)] text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-brand-500"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveInlineEdit(item.id)}
+                          className="p-1 rounded bg-emerald-500 text-white hover:bg-emerald-600 transition-colors shadow-2xs cursor-pointer"
+                          title="Save change"
+                        >
+                          <Check size={11} strokeWidth={2.5} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCancelInlineEdit}
+                          className="p-1 rounded bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-rose-500 transition-colors cursor-pointer"
+                          title="Cancel"
+                        >
+                          <X size={11} />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => handleStartInlineEdit(item)}
+                        className="font-bold text-[var(--text-primary)] tabular flex items-center gap-1 hover:text-brand-600 dark:hover:text-brand-400 group cursor-pointer text-left transition-colors"
+                        title="Click to edit planned budget"
+                      >
+                        <span>{formatINR(item.plannedAmount)}</span>
+                        <Pencil size={9} className="opacity-0 group-hover:opacity-100 text-brand-500 transition-opacity" />
+                      </button>
+                    )}
                   </div>
                   <div>
                     <span className="text-[9px] text-[var(--text-muted)] block">Transferred</span>
@@ -466,7 +543,7 @@ export function MonthlyBudgetAllocationCard() {
                         item.name
                       )
                     }
-                    className="w-full mt-1 py-1 px-2 text-[10px] font-semibold rounded-lg border border-[var(--border)] bg-[var(--bg-subtle)] hover:bg-brand-500 hover:text-white hover:border-brand-500 transition-colors flex items-center justify-center gap-1"
+                    className="w-full mt-1 py-1 px-2 text-[10px] font-semibold rounded-lg border border-[var(--border)] bg-[var(--bg-subtle)] hover:bg-brand-500 hover:text-white hover:border-brand-500 transition-colors flex items-center justify-center gap-1 cursor-pointer"
                   >
                     <ArrowRightLeft size={11} />
                     <span>
@@ -483,10 +560,14 @@ export function MonthlyBudgetAllocationCard() {
       {/* Edit Budget Plan Modal */}
       <EditBudgetAllocationModal
         isOpen={isEditModalOpen}
-        onClose={() => setIsEditModalOpen(false)}
+        onClose={() => {
+          setIsEditModalOpen(false)
+          setInitialEditCategoryId(null)
+        }}
         currentPlan={plan}
         accounts={accounts}
         onSave={handleSavePlan}
+        initialEditingCategoryId={initialEditCategoryId}
       />
 
       {/* Execute Allocation Transfer Modal */}

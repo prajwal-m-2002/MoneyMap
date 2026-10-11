@@ -459,9 +459,79 @@ export function calculateMonthlyCycleOverview(
   }
 }
 
+export const MONTHLY_PLAN_TEMPLATE_STORAGE_KEY = 'moneymap_monthly_plan_template_v1'
+
 /**
  * Storage key helper for saving and retrieving month-specific budget plans.
  */
 export function getMonthlyPlanStorageKey(month: string): string {
   return `moneymap_monthly_plan_${month}`
 }
+
+function getSafeStorage(): Storage | null {
+  try {
+    if (typeof localStorage !== 'undefined') return localStorage
+    if (typeof window !== 'undefined' && window.localStorage) return window.localStorage
+  } catch {
+    // ignore
+  }
+  return null
+}
+
+/**
+ * Retrieves the saved plan for a month, falling back to any saved default template,
+ * or finally generating the system default based on active accounts.
+ */
+export function getPersistedMonthlyPlan(
+  month: string,
+  accounts: Account[],
+  defaultSalary = 27000
+): MonthlyBudgetPlan {
+  try {
+    const storage = getSafeStorage()
+    if (storage) {
+      const stored = storage.getItem(getMonthlyPlanStorageKey(month))
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        if (parsed && Array.isArray(parsed.allocations)) {
+          return parsed
+        }
+      }
+      const template = storage.getItem(MONTHLY_PLAN_TEMPLATE_STORAGE_KEY)
+      if (template) {
+        const parsedTemplate = JSON.parse(template)
+        if (parsedTemplate && Array.isArray(parsedTemplate.allocations)) {
+          return {
+            ...parsedTemplate,
+            month,
+          }
+        }
+      }
+    }
+  } catch {
+    // fallback
+  }
+  return getDefaultMonthlyBudgetPlan(accounts, defaultSalary, month)
+}
+
+/**
+ * Persists a monthly budget plan, optionally updating the global template.
+ */
+export function savePersistedMonthlyPlan(
+  plan: MonthlyBudgetPlan,
+  saveAsDefaultTemplate = false
+): void {
+  try {
+    const storage = getSafeStorage()
+    if (storage) {
+      storage.setItem(getMonthlyPlanStorageKey(plan.month), JSON.stringify(plan))
+      if (saveAsDefaultTemplate) {
+        storage.setItem(MONTHLY_PLAN_TEMPLATE_STORAGE_KEY, JSON.stringify(plan))
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
+
