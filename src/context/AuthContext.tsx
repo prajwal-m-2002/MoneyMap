@@ -29,6 +29,70 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 const DEMO_STORAGE_KEY = 'moneymap_demo_user_v1'
 
+export function extractOAuthErrorFromUrl(
+  searchStr = typeof window !== 'undefined' ? window.location.search : '',
+  hashStr = typeof window !== 'undefined' ? window.location.hash : ''
+): string | null {
+  // Check search query params (?error=...&error_description=...)
+  const searchParams = new URLSearchParams(searchStr)
+  const errorDescription = searchParams.get('error_description')
+  const error = searchParams.get('error')
+
+  // Check hash fragment (#error=...&error_description=...)
+  let hashError: string | null = null
+  let hashDesc: string | null = null
+  if (hashStr && hashStr.startsWith('#')) {
+    const hashParams = new URLSearchParams(hashStr.slice(1))
+    hashDesc = hashParams.get('error_description')
+    hashError = hashParams.get('error')
+  }
+
+  const desc = errorDescription || hashDesc
+  const err = error || hashError
+
+  if (desc) {
+    try {
+      return decodeURIComponent(desc.replace(/\+/g, ' '))
+    } catch {
+      return desc
+    }
+  }
+
+  if (err) {
+    if (err === 'access_denied') return 'Google sign-in was cancelled or access denied.'
+    return `OAuth sign-in failed: ${err}`
+  }
+
+  return null
+}
+
+export function cleanOAuthUrlParams() {
+  if (typeof window === 'undefined' || !window.history?.replaceState) return
+
+  const hasHashTokens =
+    window.location.hash.includes('access_token') ||
+    window.location.hash.includes('refresh_token') ||
+    window.location.hash.includes('error=')
+
+  const searchParams = new URLSearchParams(window.location.search)
+  const hasCodeOrError =
+    searchParams.has('code') ||
+    searchParams.has('error') ||
+    searchParams.has('error_description') ||
+    searchParams.has('error_code')
+
+  if (hasHashTokens || hasCodeOrError) {
+    searchParams.delete('code')
+    searchParams.delete('error')
+    searchParams.delete('error_description')
+    searchParams.delete('error_code')
+
+    const newSearch = searchParams.toString() ? `?${searchParams.toString()}` : ''
+    const cleanUrl = `${window.location.pathname}${newSearch}`
+    window.history.replaceState(null, document.title, cleanUrl)
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserProfile | null>(null)
   const [session, setSession] = useState<Session | null>(null)
@@ -39,11 +103,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Initialize Auth state
   useEffect(() => {
     let mounted = true
+    let unsubscribeFn: (() => void) | undefined
+
+    // 1. Detect any OAuth error returned from provider in URL search or hash
+    const urlOAuthError = extractOAuthErrorFromUrl()
+    if (urlOAuthError) {
+      setError(urlOAuthError)
+      cleanOAuthUrlParams()
+    }
 
     async function initAuth() {
       try {
         if (isSupabaseConfigured && supabase) {
-          // Check existing Supabase session
+          // Listen for Supabase auth state changes (SIGNED_IN, INITIAL_SESSION, TOKEN_REFRESHED)
+          const {
+            data: { subscription },
+          } = supabase.auth.onAuthStateChange((_event, currentSession) => {
+            if (!mounted) return
+            setSession(currentSession)
+            if (currentSession?.user) {
+              const sbUser = currentSession.user
+              setUser({
+                id: sbUser.id,
+                email: sbUser.email || '',
+                fullName: sbUser.user_metadata?.full_name || sbUser.email?.split('@')[0],
+                avatarUrl: sbUser.user_metadata?.avatar_url,
+                provider: (sbUser.app_metadata?.provider as 'email' | 'google') || 'email',
+                createdAt: sbUser.created_at,
+              })
+              setIsDemoMode(false)
+              try {
+                localStorage.removeItem(DEMO_STORAGE_KEY)
+              } catch {
+                // ignore
+              }
+              cleanOAuthUrlParams()
+            } else {
+              // If not in demo mode, clear user
+              try {
+                if (!localStorage.getItem(DEMO_STORAGE_KEY)) {
+                  setUser(null)
+                }
+              } catch {
+                setUser(null)
+              }
+            }
+            setLoading(false)
+          })
+
+          unsubscribeFn = () => subscription.unsubscribe()
+
+          // Check existing Supabase session in storage or restored from URL
           const { data, error: sessionError } = await supabase.auth.getSession()
           if (sessionError) {
             console.warn('Supabase getSession error:', sessionError.message)
@@ -61,43 +171,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               createdAt: sbUser.created_at,
             })
             setIsDemoMode(false)
+            try {
+              localStorage.removeItem(DEMO_STORAGE_KEY)
+            } catch {
+              // ignore
+            }
+            cleanOAuthUrlParams()
             setLoading(false)
             return
-          }
-
-          // Listen for Supabase auth changes
-          const {
-            data: { subscription },
-          } = supabase.auth.onAuthStateChange((_event, currentSession) => {
-            if (!mounted) return
-            setSession(currentSession)
-            if (currentSession?.user) {
-              const sbUser = currentSession.user
-              setUser({
-                id: sbUser.id,
-                email: sbUser.email || '',
-                fullName: sbUser.user_metadata?.full_name || sbUser.email?.split('@')[0],
-                avatarUrl: sbUser.user_metadata?.avatar_url,
-                provider: (sbUser.app_metadata?.provider as 'email' | 'google') || 'email',
-                createdAt: sbUser.created_at,
-              })
-              setIsDemoMode(false)
-            } else {
-              // If not in demo mode, clear user
-              if (!localStorage.getItem(DEMO_STORAGE_KEY)) {
-                setUser(null)
-              }
-            }
-            setLoading(false)
-          })
-
-          return () => {
-            subscription.unsubscribe()
           }
         }
 
         // Check if demo user was saved
-        const storedDemo = localStorage.getItem(DEMO_STORAGE_KEY)
+        const storedDemo = typeof localStorage !== 'undefined' ? localStorage.getItem(DEMO_STORAGE_KEY) : null
         if (storedDemo && mounted) {
           try {
             const parsed = JSON.parse(storedDemo)
@@ -120,6 +206,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       mounted = false
+      if (unsubscribeFn) {
+        unsubscribeFn()
+      }
     }
   }, [])
 
@@ -191,7 +280,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signInWithGoogle = async () => {
     setError(null)
     if (!isSupabaseConfigured || !supabase) {
-      setError('Supabase is not configured yet. Please configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable Google OAuth.')
+      setError(
+        'Supabase is not configured yet. Please configure VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your environment or Vercel project settings to enable Google OAuth.'
+      )
       return
     }
 

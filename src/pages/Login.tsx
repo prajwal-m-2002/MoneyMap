@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { Logo } from '@/components/Logo'
+import { getSupabaseConfigStatus } from '@/lib/supabase'
 import {
   Lock,
   Mail,
@@ -15,6 +16,7 @@ import {
   Database,
   ArrowRight,
   Info,
+  X,
 } from 'lucide-react'
 
 export default function Login() {
@@ -32,13 +34,14 @@ export default function Login() {
   const navigate = useNavigate()
   const location = useLocation()
   const from = (location.state as any)?.from?.pathname || '/'
+  const targetRoute = from && from !== '/login' ? from : '/'
 
-  // If already logged in, redirect
+  // If already logged in, redirect to intended target (never to /login)
   React.useEffect(() => {
     if (user) {
-      navigate(from, { replace: true })
+      navigate(targetRoute, { replace: true })
     }
-  }, [user, navigate, from])
+  }, [user, navigate, targetRoute])
 
   const [mode, setMode] = useState<'signin' | 'signup'>('signin')
   const [email, setEmail] = useState('')
@@ -48,6 +51,8 @@ export default function Login() {
   const [submitting, setSubmitting] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
   const [showConfigGuide, setShowConfigGuide] = useState(false)
+
+  const configStatus = getSupabaseConfigStatus()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -59,14 +64,14 @@ export default function Login() {
       if (mode === 'signin') {
         const res = await signInWithPassword(email, password)
         if (res.success) {
-          navigate(from, { replace: true })
+          navigate(targetRoute, { replace: true })
         } else if (res.error) {
           setLocalError(res.error)
         }
       } else {
         const res = await signUpWithPassword(email, password, fullName)
         if (res.success) {
-          navigate(from, { replace: true })
+          navigate(targetRoute, { replace: true })
         } else if (res.error) {
           setLocalError(res.error)
         }
@@ -90,13 +95,13 @@ export default function Login() {
 
   const handleDemoClick = () => {
     loginAsDemo('prajwal@moneymap.app')
-    navigate(from, { replace: true })
+    navigate(targetRoute, { replace: true })
   }
 
   const activeError = localError || authError
 
   return (
-    <div className="min-h-screen flex flex-col justify-center items-center px-4 py-12 bg-[var(--bg-app)]">
+    <div className="min-h-dvh flex flex-col justify-center items-center px-4 py-8 sm:py-12 bg-[var(--bg-app)]">
       {/* Background radial gradient glow */}
       <div className="fixed inset-0 pointer-events-none opacity-40 dark:opacity-20 flex items-center justify-center">
         <div className="w-[500px] h-[500px] rounded-full bg-brand-500/10 blur-[100px]" />
@@ -128,7 +133,7 @@ export default function Login() {
                 setLocalError(null)
                 clearError()
               }}
-              className={`py-2 text-xs font-semibold rounded-lg transition-all ${
+              className={`min-h-[40px] py-2 text-xs font-semibold rounded-lg transition-all ${
                 mode === 'signin'
                   ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
@@ -144,7 +149,7 @@ export default function Login() {
                 setLocalError(null)
                 clearError()
               }}
-              className={`py-2 text-xs font-semibold rounded-lg transition-all ${
+              className={`min-h-[40px] py-2 text-xs font-semibold rounded-lg transition-all ${
                 mode === 'signup'
                   ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
@@ -159,7 +164,7 @@ export default function Login() {
             type="button"
             id="google-signin-btn"
             onClick={handleGoogleClick}
-            className="w-full flex items-center justify-center gap-3 py-2.5 px-4 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] hover:bg-[var(--bg-subtle)] text-[var(--text-primary)] font-medium text-sm transition-all duration-150 shadow-sm hover:shadow"
+            className="w-full min-h-[44px] flex items-center justify-center gap-3 py-2.5 px-4 rounded-xl border border-[var(--border)] bg-[var(--bg-surface)] hover:bg-[var(--bg-subtle)] active:scale-[0.99] text-[var(--text-primary)] font-medium text-sm transition-all duration-150 shadow-sm hover:shadow"
           >
             {/* Google SVG Icon */}
             <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
@@ -193,9 +198,20 @@ export default function Login() {
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             {activeError && (
-              <div className="flex items-start gap-2.5 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-400 text-xs">
+              <div className="flex items-start gap-2.5 p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 text-rose-700 dark:text-rose-400 text-xs animate-fade-in">
                 <AlertCircle size={16} className="shrink-0 mt-0.5" />
-                <span className="flex-1">{activeError}</span>
+                <span className="flex-1 leading-relaxed">{activeError}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLocalError(null)
+                    clearError()
+                  }}
+                  className="p-1 rounded-md hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-colors"
+                  aria-label="Dismiss error"
+                >
+                  <X size={13} />
+                </button>
               </div>
             )}
 
@@ -216,7 +232,7 @@ export default function Login() {
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     placeholder="Prajwal Sharma"
-                    className="w-full pl-9 pr-3 py-2 text-sm rounded-xl bg-[var(--bg-subtle)] border border-[var(--border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all"
+                    className="w-full min-h-[44px] pl-9 pr-3 py-2 text-base sm:text-sm rounded-xl bg-[var(--bg-subtle)] border border-[var(--border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all"
                   />
                 </div>
               </div>
@@ -238,7 +254,7 @@ export default function Login() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="name@example.com"
-                  className="w-full pl-9 pr-3 py-2 text-sm rounded-xl bg-[var(--bg-subtle)] border border-[var(--border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all"
+                  className="w-full min-h-[44px] pl-9 pr-3 py-2 text-base sm:text-sm rounded-xl bg-[var(--bg-subtle)] border border-[var(--border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all"
                 />
               </div>
             </div>
@@ -259,12 +275,12 @@ export default function Login() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full pl-9 pr-10 py-2 text-sm rounded-xl bg-[var(--bg-subtle)] border border-[var(--border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all"
+                  className="w-full min-h-[44px] pl-9 pr-10 py-2 text-base sm:text-sm rounded-xl bg-[var(--bg-subtle)] border border-[var(--border)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 transition-all"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
                 >
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -275,7 +291,7 @@ export default function Login() {
               type="submit"
               id="login-submit-btn"
               disabled={submitting}
-              className="w-full btn-primary py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 shadow-md shadow-brand-500/10 hover:shadow-brand-500/20 transition-all"
+              className="w-full min-h-[44px] btn-primary py-2.5 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 shadow-md shadow-brand-500/10 hover:shadow-brand-500/20 transition-all active:scale-[0.99]"
             >
               {submitting ? (
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -294,7 +310,7 @@ export default function Login() {
               type="button"
               id="demo-login-btn"
               onClick={handleDemoClick}
-              className="w-full flex items-center justify-between p-3 rounded-xl bg-brand-50/60 dark:bg-brand-950/20 border border-brand-200/80 dark:border-brand-800/40 text-brand-800 dark:text-brand-300 hover:bg-brand-100/60 transition-all group"
+              className="w-full min-h-[44px] flex items-center justify-between p-3 rounded-xl bg-brand-50/60 dark:bg-brand-950/20 border border-brand-200/80 dark:border-brand-800/40 text-brand-800 dark:text-brand-300 hover:bg-brand-100/60 transition-all group"
             >
               <div className="flex items-center gap-2.5 text-left">
                 <div className="w-7 h-7 rounded-lg bg-brand-500 text-white flex items-center justify-center shadow-xs">
@@ -327,7 +343,7 @@ export default function Login() {
             {isConfigured ? (
               <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-400 font-semibold text-[11px] border border-emerald-200/60 dark:border-emerald-800/40">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                Connected
+                Connected {configStatus.urlSource !== 'none' ? `(${configStatus.urlSource})` : ''}
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400 font-semibold text-[11px] border border-amber-200/60 dark:border-amber-800/40">
@@ -349,20 +365,37 @@ export default function Login() {
           {showConfigGuide && (
             <div className="p-3 rounded-xl bg-[var(--bg-subtle)] border border-[var(--border)] text-[11px] text-[var(--text-secondary)] space-y-2 leading-relaxed animate-fade-in">
               <p className="font-semibold text-[var(--text-primary)]">
-                To connect your live Supabase project:
+                Required Vercel & Local Environment Variables:
               </p>
-              <ol className="list-decimal pl-4 space-y-1">
-                <li>Create a project at <strong>supabase.com</strong></li>
-                <li>Go to <strong>Project Settings → API</strong></li>
-                <li>Add to your <code className="px-1 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border)]">.env.local</code>:</li>
-              </ol>
-              <pre className="p-2 rounded-lg bg-[var(--bg-surface)] border border-[var(--border)] font-mono text-[10px] text-[var(--text-primary)] overflow-x-auto">
-{`VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=eyJhbGciOi...`}
-              </pre>
-              <p className="text-[10px] text-[var(--text-muted)]">
-                For Google OAuth, configure Google Client ID & Secret in Supabase <strong>Authentication → Providers → Google</strong>.
-              </p>
+              <div className="space-y-1 text-[11px]">
+                <p>
+                  In <strong>Vercel Project Settings → Environment Variables</strong> (and <code className="px-1 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border)]">.env.local</code> for local dev):
+                </p>
+                <pre className="p-2.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border)] font-mono text-[10px] text-[var(--text-primary)] overflow-x-auto">
+{`VITE_SUPABASE_URL=https://xhpdbqwncpvgaitgxxnu.supabase.co
+VITE_SUPABASE_ANON_KEY=sb_publishable_... (or anon JWT)`}
+                </pre>
+                <p className="text-[10px] text-[var(--text-muted)]">
+                  (Note: NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY are also recognized as fallbacks)
+                </p>
+              </div>
+
+              <div className="pt-2 border-t border-[var(--border)] space-y-1">
+                <p className="font-semibold text-[var(--text-primary)]">
+                  Supabase Dashboard & Google OAuth Settings:
+                </p>
+                <ul className="list-disc pl-4 space-y-1 text-[10px]">
+                  <li>
+                    <strong>Supabase Site URL:</strong> Set to <code className="px-1 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border)]">https://money-map-five-weld.vercel.app</code>
+                  </li>
+                  <li>
+                    <strong>Redirect URLs (Whitelist):</strong> Add <code className="px-1 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border)]">https://money-map-five-weld.vercel.app/**</code> and <code className="px-1 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border)]">http://localhost:3000/**</code>
+                  </li>
+                  <li>
+                    <strong>Google Cloud Authorized Redirect URI:</strong> Must be <code className="px-1 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border)] font-semibold">https://xhpdbqwncpvgaitgxxnu.supabase.co/auth/v1/callback</code>
+                  </li>
+                </ul>
+              </div>
             </div>
           )}
         </div>

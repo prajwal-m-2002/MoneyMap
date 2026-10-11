@@ -152,6 +152,14 @@
 
   /* Number display (tabular figures for alignment) */
   .tabular { font-variant-numeric: tabular-nums; }
+
+  /* Mobile safe area padding utilities */
+  .pb-safe {
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 0.5rem);
+  }
+  .pt-safe {
+    padding-top: max(env(safe-area-inset-top, 0px), 0.5rem);
+  }
 }
 
 /* ─── Component layer ──────────────────────────────────────── */

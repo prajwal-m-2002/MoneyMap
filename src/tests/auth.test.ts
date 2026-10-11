@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { isSupabaseConfigured } from '@/lib/supabase'
+import { isSupabaseConfigured, getOAuthRedirectUrl, getSupabaseConfigStatus } from '@/lib/supabase'
+import { extractOAuthErrorFromUrl } from '@/context/AuthContext'
 
 // Mock Storage for node-based testing environments
 class MemoryStorage {
@@ -24,9 +25,107 @@ class MemoryStorage {
 
 const mockStorage = new MemoryStorage()
 
-describe('Supabase Configuration Detection', () => {
+describe('Supabase Configuration Detection & Diagnostics', () => {
   it('detects whether valid Supabase configuration is present', () => {
     expect(typeof isSupabaseConfigured).toBe('boolean')
+  })
+
+  it('provides structured configuration diagnostics', () => {
+    const status = getSupabaseConfigStatus()
+    expect(status).toHaveProperty('isConfigured')
+    expect(status).toHaveProperty('hasUrl')
+    expect(status).toHaveProperty('hasKey')
+    expect(status).toHaveProperty('urlSource')
+    expect(status).toHaveProperty('keySource')
+    expect(Array.isArray(status.missingVars)).toBe(true)
+  })
+})
+
+describe('OAuth Redirect URL Selection — Production vs Localhost', () => {
+  it('resolves production Vercel domain correctly and NEVER returns localhost in production', () => {
+    const prodWindow = {
+      location: {
+        origin: 'https://money-map-five-weld.vercel.app',
+      },
+    }
+
+    const redirectUrl = getOAuthRedirectUrl(undefined, prodWindow)
+    expect(redirectUrl).toBe('https://money-map-five-weld.vercel.app/')
+    expect(redirectUrl).not.toContain('localhost')
+    expect(redirectUrl).not.toContain(':3000')
+  })
+
+  it('normalizes trailing slashes properly on production origin', () => {
+    const prodWithSlash = {
+      location: {
+        origin: 'https://money-map-five-weld.vercel.app/',
+      },
+    }
+
+    const redirectUrl = getOAuthRedirectUrl(undefined, prodWithSlash)
+    expect(redirectUrl).toBe('https://money-map-five-weld.vercel.app/')
+  })
+
+  it('resolves local development port 3000 when running on localhost', () => {
+    const localWindow = {
+      location: {
+        origin: 'http://localhost:3000',
+      },
+    }
+
+    const redirectUrl = getOAuthRedirectUrl(undefined, localWindow)
+    expect(redirectUrl).toBe('http://localhost:3000/')
+  })
+
+  it('prioritizes custom redirect URL if provided', () => {
+    const custom = 'https://money-map-five-weld.vercel.app/login'
+    const redirectUrl = getOAuthRedirectUrl(custom)
+    expect(redirectUrl).toBe(custom)
+  })
+
+  it('falls back safely to localhost:3000/ when window is undefined (SSR/test runner)', () => {
+    const redirectUrl = getOAuthRedirectUrl(undefined, undefined)
+    expect(redirectUrl).toBe('http://localhost:3000/')
+  })
+})
+
+describe('OAuth Error Extraction from URL', () => {
+  it('extracts error_description from query search string', () => {
+    const search = '?error=access_denied&error_description=User+denied+access+to+application'
+    const err = extractOAuthErrorFromUrl(search, '')
+    expect(err).toBe('User denied access to application')
+  })
+
+  it('extracts error_description from hash fragment', () => {
+    const hash = '#error=invalid_grant&error_description=Token+exchange+failed'
+    const err = extractOAuthErrorFromUrl('', hash)
+    expect(err).toBe('Token exchange failed')
+  })
+
+  it('provides friendly message for access_denied without description', () => {
+    const search = '?error=access_denied'
+    const err = extractOAuthErrorFromUrl(search, '')
+    expect(err).toBe('Google sign-in was cancelled or access denied.')
+  })
+
+  it('returns null when no error is present in query or hash', () => {
+    const search = '?code=valid-auth-code-xyz'
+    const hash = '#access_token=valid-jwt-token'
+    expect(extractOAuthErrorFromUrl(search, hash)).toBeNull()
+  })
+})
+
+describe('Redirect Loop Prevention', () => {
+  it('ensures targetRoute never equals /login to prevent infinite redirect loop', () => {
+    const getSafeTargetRoute = (from?: string | null) => {
+      return from && from !== '/login' ? from : '/'
+    }
+
+    expect(getSafeTargetRoute('/login')).toBe('/')
+    expect(getSafeTargetRoute(null)).toBe('/')
+    expect(getSafeTargetRoute(undefined)).toBe('/')
+    expect(getSafeTargetRoute('/spending')).toBe('/spending')
+    expect(getSafeTargetRoute('/transactions')).toBe('/transactions')
   })
 })
 

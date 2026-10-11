@@ -30,7 +30,7 @@ export function MobileNav() {
         'md:hidden fixed bottom-0 inset-x-0 z-40',
         'bg-[var(--bg-surface)] border-t border-[var(--border)]',
         'flex items-center justify-around',
-        'h-16 px-1 pb-safe',
+        'min-h-[64px] px-1 py-1 pb-safe',
         'shadow-[0_-1px_0_0_var(--border)]'
       )}
     >
@@ -43,7 +43,7 @@ export function MobileNav() {
           aria-label={label}
           className={({ isActive }) =>
             cn(
-              'flex flex-col items-center gap-0.5 flex-1 py-2 px-1',
+              'flex flex-col items-center justify-center gap-0.5 flex-1 min-h-[44px] py-1 px-0.5',
               'text-[var(--text-secondary)] transition-colors duration-150',
               isActive && 'text-brand-500 dark:text-brand-400'
             )
@@ -56,7 +56,7 @@ export function MobileNav() {
                 strokeWidth={isActive ? 2.5 : 2}
                 className="shrink-0"
               />
-              <span className="text-[10px] font-semibold leading-none">{label}</span>
+              <span className="text-[10px] font-semibold leading-none truncate max-w-full">{label}</span>
             </>
           )}
         </NavLink>
