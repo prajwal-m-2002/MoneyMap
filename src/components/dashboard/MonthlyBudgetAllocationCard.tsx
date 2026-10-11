@@ -18,23 +18,31 @@ import {
   Pencil,
   Check,
   X,
+  Cloud,
+  CloudOff,
 } from 'lucide-react'
 import { useFinance } from '@/context/FinanceContext'
+import { useAuth } from '@/context/AuthContext'
 import { formatINR } from '@/lib/utils'
 import type { MonthlyBudgetPlan, Account } from '@/types/finance'
 import {
   calculateMonthlyCycleOverview,
   getPreviousMonthStr,
   getNextMonthStr,
-  getPersistedMonthlyPlan,
-  savePersistedMonthlyPlan,
 } from '@/lib/monthlyCycleMath'
 import { EditBudgetAllocationModal } from '@/components/modals/EditBudgetAllocationModal'
 import { TransferAllocationModal } from '@/components/modals/TransferAllocationModal'
 import { RecordSalaryModal } from '@/components/modals/RecordSalaryModal'
 
 export function MonthlyBudgetAllocationCard() {
-  const { accounts, transactions } = useFinance()
+  const {
+    accounts,
+    transactions,
+    getMonthlyPlanForMonth,
+    saveMonthlyPlan,
+    isSupabaseConnected,
+  } = useFinance()
+  const { user, isDemoMode } = useAuth()
 
   const currentMonthStr = useMemo(() => new Date().toISOString().slice(0, 7), [])
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthStr)
@@ -52,22 +60,20 @@ export function MonthlyBudgetAllocationCard() {
   const [inlineEditingId, setInlineEditingId] = useState<string | null>(null)
   const [inlineAmountStr, setInlineAmountStr] = useState<string>('')
 
-  // Load persisted plan for selected month, or fallback to saved template or default
-  const [plan, setPlan] = useState<MonthlyBudgetPlan>(() => {
-    return getPersistedMonthlyPlan(selectedMonth, accounts, 27000)
-  })
+  // Authoritative monthly plan from FinanceContext (synced across Phone <-> PC)
+  const plan = useMemo(() => {
+    return getMonthlyPlanForMonth(selectedMonth)
+  }, [getMonthlyPlanForMonth, selectedMonth])
 
-  // Whenever selectedMonth changes, update plan state
+  // Whenever selectedMonth changes, update selection state
   const handleSelectMonth = (newMonth: string) => {
     setSelectedMonth(newMonth)
-    setPlan(getPersistedMonthlyPlan(newMonth, accounts, 27000))
     setInlineEditingId(null)
   }
 
-  // Handle plan save
-  const handleSavePlan = (newPlan: MonthlyBudgetPlan, saveAsDefault = true) => {
-    setPlan(newPlan)
-    savePersistedMonthlyPlan(newPlan, saveAsDefault)
+  // Handle plan save - persists to state, localStorage, and Supabase Cloud DB
+  const handleSavePlan = async (newPlan: MonthlyBudgetPlan, saveAsDefault = true) => {
+    await saveMonthlyPlan(newPlan, saveAsDefault)
   }
 
   // Inline editing actions for single categories
@@ -81,7 +87,7 @@ export function MonthlyBudgetAllocationCard() {
     setInlineAmountStr('')
   }
 
-  const handleSaveInlineEdit = (itemId: string) => {
+  const handleSaveInlineEdit = async (itemId: string) => {
     const val = Math.max(0, Number(inlineAmountStr) || 0)
     const updatedAllocations = plan.allocations.map((a) =>
       a.id === itemId ? { ...a, plannedAmount: val } : a
@@ -93,7 +99,7 @@ export function MonthlyBudgetAllocationCard() {
       expectedSalary: Math.max(plan.expectedSalary || 0, totalAllocated),
       lastUpdated: new Date().toISOString(),
     }
-    handleSavePlan(updatedPlan, true)
+    await handleSavePlan(updatedPlan, true)
     setInlineEditingId(null)
     setInlineAmountStr('')
   }
@@ -102,7 +108,6 @@ export function MonthlyBudgetAllocationCard() {
     setInitialEditCategoryId(categoryId || null)
     setIsEditModalOpen(true)
   }
-
 
   // Calculate comprehensive recurring monthly cycle overview
   const cycleOverview = useMemo(() => {
@@ -371,6 +376,23 @@ export function MonthlyBudgetAllocationCard() {
             <span className="text-[var(--text-secondary)] tabular text-xs">
               Total Planned: <strong className="text-[var(--text-primary)]">{formatINR(cycleOverview.plannedAllocationsTotal)}</strong> | Funded: <strong className="text-brand-600 dark:text-brand-400">{formatINR(cycleOverview.plannedVsActualSummary.totalTransferred)}</strong>
             </span>
+            {user && !isDemoMode && isSupabaseConnected ? (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20"
+                title="Planned budget is cloud synced across Phone and PC via Supabase"
+              >
+                <Cloud size={11} />
+                <span>Cloud Synced</span>
+              </span>
+            ) : (
+              <span
+                className="inline-flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 font-bold px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20"
+                title="Local mode: Saved on this browser. Sign in on Phone & PC to sync automatically."
+              >
+                <CloudOff size={11} />
+                <span>Local Only</span>
+              </span>
+            )}
             <button
               type="button"
               onClick={() => handleOpenEditModalForCategory()}

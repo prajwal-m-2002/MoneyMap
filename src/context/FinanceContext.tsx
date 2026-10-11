@@ -28,6 +28,7 @@ import type {
   UpdateRecurringInput,
   CashFlowForecast,
   RecurringSuggestion,
+  MonthlyBudgetPlan,
 } from '@/types/finance'
 import { calculateEMIAmount, generateAmortizationSchedule } from '@/lib/emiMath'
 import {
@@ -35,6 +36,10 @@ import {
   generateCashFlowForecast,
   discoverRecurringPatterns,
 } from '@/lib/predictionEngine'
+import {
+  getPersistedMonthlyPlan,
+  savePersistedMonthlyPlan,
+} from '@/lib/monthlyCycleMath'
 import { supabase, isSupabaseConfigured } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import {
@@ -105,6 +110,10 @@ interface FinanceContextType {
   resetToDefaultData: () => Promise<void> | void
   restoreAllData: (payload: BackupPayload) => Promise<{ success: boolean; error?: string }>
   backupToCloud: () => Promise<{ success: boolean; error?: string; count?: number }>
+  monthlyBudgetPlans: Record<string, MonthlyBudgetPlan>
+  monthlyBudgetTemplate: MonthlyBudgetPlan | null
+  getMonthlyPlanForMonth: (month: string) => MonthlyBudgetPlan
+  saveMonthlyPlan: (plan: MonthlyBudgetPlan, saveAsDefault?: boolean) => Promise<{ success: boolean; error?: string }>
 }
 
 const FinanceContext = createContext<FinanceContextType | undefined>(undefined)
@@ -347,6 +356,10 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     return cleanStoredList<RecurringTransaction>(RECURRING_STORAGE_KEY)
   })
 
+  // Monthly Budget Planning States (Cross-device synced)
+  const [monthlyBudgetPlans, setMonthlyBudgetPlans] = useState<Record<string, MonthlyBudgetPlan>>({})
+  const [monthlyBudgetTemplate, setMonthlyBudgetTemplate] = useState<MonthlyBudgetPlan | null>(null)
+
   // Sync with Supabase on user authentication
   useEffect(() => {
     let active = true
@@ -429,11 +442,14 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
-        // Fetch Budgets from Supabase
+        // Fetch Budgets from Supabase (both Category limits and Monthly Allocation Plans)
         const { data: bData } = await (supabase.from('budgets') as any).select('*')
         if (active && bData) {
           if (bData.length > 0) {
-            const mappedBudgets: Budget[] = bData.map((b: any) => ({
+            const regularBudgets = bData.filter((b: any) => !b.category?.startsWith('__mbp_'))
+            const planRows = bData.filter((b: any) => b.category?.startsWith('__mbp_full__:'))
+
+            const mappedBudgets: Budget[] = regularBudgets.map((b: any) => ({
               id: b.id,
               category: b.category,
               monthlyLimit: Number(b.monthly_limit),
@@ -442,6 +458,64 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
               updatedAt: b.updated_at,
             }))
             setBudgets(mappedBudgets)
+
+            // Parse Monthly Budget Plans & Template from budgets payload
+            const cloudPlans: Record<string, MonthlyBudgetPlan> = {}
+            let cloudTemplate: MonthlyBudgetPlan | null = null
+
+            for (const row of planRows) {
+              try {
+                const allocations = JSON.parse(row.category.slice(13))
+                if (Array.isArray(allocations)) {
+                  const p: MonthlyBudgetPlan = {
+                    month: row.month,
+                    expectedSalary: Number(row.monthly_limit) || 27000,
+                    allocations,
+                    lastUpdated: row.updated_at || row.created_at,
+                  }
+                  if (row.month === 'template') {
+                    cloudTemplate = p
+                    savePersistedMonthlyPlan(p, true)
+                  } else {
+                    cloudPlans[row.month] = p
+                    savePersistedMonthlyPlan(p, false)
+                  }
+                }
+              } catch (e) {
+                console.warn('Failed to parse cloud monthly budget plan:', e)
+              }
+            }
+
+            // Check if dedicated monthly_budget_plans table exists and has records
+            try {
+              const { data: mbpData } = await (supabase.from('monthly_budget_plans') as any).select('*')
+              if (mbpData && mbpData.length > 0) {
+                for (const row of mbpData) {
+                  const p: MonthlyBudgetPlan = {
+                    month: row.month,
+                    expectedSalary: Number(row.expected_salary) || 27000,
+                    allocations: Array.isArray(row.allocations) ? row.allocations : [],
+                    lastUpdated: row.updated_at || row.created_at,
+                  }
+                  if (row.month === 'template') {
+                    cloudTemplate = p
+                    savePersistedMonthlyPlan(p, true)
+                  } else {
+                    cloudPlans[row.month] = p
+                    savePersistedMonthlyPlan(p, false)
+                  }
+                }
+              }
+            } catch {
+              // Graceful fallback if monthly_budget_plans table is not yet migrated
+            }
+
+            if (Object.keys(cloudPlans).length > 0) {
+              setMonthlyBudgetPlans((prev) => ({ ...prev, ...cloudPlans }))
+            }
+            if (cloudTemplate) {
+              setMonthlyBudgetTemplate(cloudTemplate)
+            }
           } else {
             setBudgets([])
           }
@@ -552,8 +626,66 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
 
     syncSupabaseData()
 
+    // Realtime channel for instant cross-device updates (Phone <-> PC)
+    let channel: any = null
+    if (isSupabaseConfigured && supabase && user && !isDemoMode) {
+      try {
+        channel = supabase
+          .channel('moneymap-cloud-sync')
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'budgets' },
+            () => {
+              syncSupabaseData()
+            }
+          )
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'accounts' },
+            () => {
+              syncSupabaseData()
+            }
+          )
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'transactions' },
+            () => {
+              syncSupabaseData()
+            }
+          )
+          .subscribe()
+      } catch (err) {
+        console.warn('Realtime subscription warning:', err)
+      }
+    }
+
+    const handleFocusSync = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible' && user && !isDemoMode && isSupabaseConfigured && supabase) {
+        syncSupabaseData()
+      }
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleFocusSync)
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', handleFocusSync)
+    }
+
     return () => {
       active = false
+      if (channel && supabase) {
+        try {
+          supabase.removeChannel(channel)
+        } catch {
+          // ignore
+        }
+      }
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleFocusSync)
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', handleFocusSync)
+      }
     }
   }, [user, isDemoMode])
 
@@ -1375,6 +1507,98 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     return { success: true }
   }
 
+  // Monthly Budget Plan Management (Cross-device synced Phone <-> PC)
+  const getMonthlyPlanForMonth = useCallback(
+    (month: string): MonthlyBudgetPlan => {
+      if (monthlyBudgetPlans[month]) {
+        return monthlyBudgetPlans[month]
+      }
+      return getPersistedMonthlyPlan(month, accounts, 27000)
+    },
+    [monthlyBudgetPlans, accounts]
+  )
+
+  const saveMonthlyPlan = useCallback(
+    async (
+      newPlan: MonthlyBudgetPlan,
+      saveAsDefault = true
+    ): Promise<{ success: boolean; error?: string }> => {
+      setMonthlyBudgetPlans((prev) => ({
+        ...prev,
+        [newPlan.month]: newPlan,
+      }))
+      if (saveAsDefault) {
+        setMonthlyBudgetTemplate(newPlan)
+      }
+      savePersistedMonthlyPlan(newPlan, saveAsDefault)
+
+      if (isSupabaseConfigured && supabase && user && !isDemoMode) {
+        try {
+          // A. Try dedicated monthly_budget_plans table if available
+          try {
+            await (supabase.from('monthly_budget_plans') as any).upsert(
+              {
+                user_id: user.id,
+                month: newPlan.month,
+                expected_salary: newPlan.expectedSalary || 27000,
+                allocations: newPlan.allocations,
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: 'user_id,month' }
+            )
+            if (saveAsDefault) {
+              await (supabase.from('monthly_budget_plans') as any).upsert(
+                {
+                  user_id: user.id,
+                  month: 'template',
+                  expected_salary: newPlan.expectedSalary || 27000,
+                  allocations: newPlan.allocations,
+                  updated_at: new Date().toISOString(),
+                },
+                { onConflict: 'user_id,month' }
+              )
+            }
+          } catch {
+            // Ignore if table not yet migrated
+          }
+
+          // B. Guaranteed universal fallback using existing budgets table
+          await (supabase.from('budgets') as any)
+            .delete()
+            .eq('month', newPlan.month)
+            .like('category', '__mbp_%')
+
+          await (supabase.from('budgets') as any).insert({
+            user_id: user.id,
+            month: newPlan.month,
+            category: `__mbp_full__:${JSON.stringify(newPlan.allocations)}`,
+            monthly_limit: Math.max(1, newPlan.expectedSalary || 27000),
+          })
+
+          if (saveAsDefault) {
+            await (supabase.from('budgets') as any)
+              .delete()
+              .eq('month', 'template')
+              .like('category', '__mbp_%')
+
+            await (supabase.from('budgets') as any).insert({
+              user_id: user.id,
+              month: 'template',
+              category: `__mbp_full__:${JSON.stringify(newPlan.allocations)}`,
+              monthly_limit: Math.max(1, newPlan.expectedSalary || 27000),
+            })
+          }
+        } catch (err: any) {
+          console.warn('Failed to sync monthly budget plan to Supabase:', err)
+          return { success: false, error: err?.message }
+        }
+      }
+
+      return { success: true }
+    },
+    [user, isDemoMode]
+  )
+
   // Preset Management
   const createPreset = async (
     input: CreatePresetInput
@@ -2084,6 +2308,8 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
     setEmiPayments([])
     setInvestments([])
     setRecurringTransactions([])
+    setMonthlyBudgetPlans({})
+    setMonthlyBudgetTemplate(null)
     try {
       localStorage.removeItem(ACCOUNTS_STORAGE_KEY)
       localStorage.removeItem(TRANSACTIONS_STORAGE_KEY)
@@ -2207,6 +2433,17 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem(EMI_PAYMENTS_STORAGE_KEY, JSON.stringify(newEmiPayments))
       localStorage.setItem(INVESTMENTS_STORAGE_KEY, JSON.stringify(newInvestments))
       localStorage.setItem(RECURRING_STORAGE_KEY, JSON.stringify(newRecurring))
+
+      if (data.monthlyBudgetPlans) {
+        setMonthlyBudgetPlans(data.monthlyBudgetPlans)
+        for (const [, p] of Object.entries(data.monthlyBudgetPlans)) {
+          savePersistedMonthlyPlan(p, false)
+        }
+      }
+      if (data.monthlyBudgetTemplate) {
+        setMonthlyBudgetTemplate(data.monthlyBudgetTemplate)
+        savePersistedMonthlyPlan(data.monthlyBudgetTemplate, true)
+      }
 
       recordAutoBackup({
         data: {
@@ -2351,6 +2588,10 @@ export function FinanceProvider({ children }: { children: React.ReactNode }) {
         resetToDefaultData,
         restoreAllData,
         backupToCloud,
+        monthlyBudgetPlans,
+        monthlyBudgetTemplate,
+        getMonthlyPlanForMonth,
+        saveMonthlyPlan,
       }}
     >
       {children}

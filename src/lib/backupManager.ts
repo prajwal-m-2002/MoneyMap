@@ -7,6 +7,7 @@ import type {
   RecurringTransaction,
   Budget,
   Preset,
+  MonthlyBudgetPlan,
 } from '@/types/finance'
 import { downloadJSONFile } from './statementExporter'
 import { supabase, isSupabaseConfigured } from './supabase'
@@ -40,6 +41,8 @@ export interface BackupPayload {
     recurringTransactions: RecurringTransaction[]
     budgets: Budget[]
     presets?: Preset[]
+    monthlyBudgetPlans?: Record<string, MonthlyBudgetPlan>
+    monthlyBudgetTemplate?: MonthlyBudgetPlan
   }
 }
 
